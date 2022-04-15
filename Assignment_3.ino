@@ -1,3 +1,4 @@
+
 //H00288896
 //Samuel Hardman
 
@@ -28,71 +29,71 @@ static SemaphoreHandle_t ToPrintSecurity; //defines the name/handle of the Semap
 //int time1 = 0;
 //int time2 = 0;
 
-struct Struct_data {
+struct Struct_data {  //sets up the struct that will store the data to be printed
   int Sw1StateTP;
   int FreqTP;
   int An1AveTP;
 };
 
-Struct_data ToPrint; 
+Struct_data ToPrint;  //creates the struct that will store the data to be printed
 
 
-//Subroutine to create the watchdog pulse (task 1)
+//Task to create the watchdog pulse (requirement 1)
 void TaskWatchdog(void * Parameters){  
   for (;;){
     digitalWrite(Wdg, HIGH);    //Starts pulse on SigB
     delayMicroseconds(50);      //Delay for width of the Pulse
     digitalWrite(Wdg, LOW);     //End Pulse on SigB
 
-    vTaskDelay(17.54/portTICK_PERIOD_MS); // wait for one second
+    vTaskDelay(17.54/portTICK_PERIOD_MS); //task delayed for 17.54ms
     
   }
 }
 
 
-//Subroutine to read the state of the push button input (task 2)
+//Task to read the state of the push button input (requirement 2)
 void TaskSw1Check(void * parameters){
-  int Sw1State;
+  int Sw1State;   //defines the variable that will store the state of the push button input
   for(;;){
     Sw1State = digitalRead(Sw1);    //read the value of digital input Sw1 and store it in the variable Sw1State
 
-    xSemaphoreTake(ToPrintSecurity,10);
-    ToPrint.Sw1StateTP = Sw1State;
-    xSemaphoreGive(ToPrintSecurity);
+    xSemaphoreTake(ToPrintSecurity,10); //obtain the semaphore before accessing shared data struct
+    ToPrint.Sw1StateTP = Sw1State;    //edit switch state value in the shared data struct
+    xSemaphoreGive(ToPrintSecurity);  //return the semaphore after accessing shared data struct
  
-    vTaskDelay(200/portTICK_PERIOD_MS);
+    vTaskDelay(200/portTICK_PERIOD_MS);   //task delayed by 200ms
   }
 }
 
-//Subroutine to read the frequency of the square wave input (task 3)
+//Task to read the frequency of the square wave input (requirement 3)
 void TaskFreqCheck(void * parameters){
-  int TimeHigh;
-  int Freq;
+  int TimeHigh;   //defines the variable that will store the high time of the square wave input
+  int Freq;       //defines the variable that will store the frequency of the square wave input
   for(;;){
-    //TimeHigh = pulseIn(SqWv, HIGH);
-    Freq = 1000000; //(TimeHigh*2);
+    TimeHigh = pulseIn(SqWv, HIGH);   //measure time high of input and store in TimeHigh
+    Freq = 1000000/(TimeHigh*2);      //calulate frequency and store in Freq
 
-    xSemaphoreTake(ToPrintSecurity,10);    
-    ToPrint.FreqTP = Freq;
-    xSemaphoreGive(ToPrintSecurity);
+    xSemaphoreTake(ToPrintSecurity,10);   //obtain the semaphore before accessing shared data struct
+    ToPrint.FreqTP = Freq;                //edit frequency value in the shared data struct
+    xSemaphoreGive(ToPrintSecurity);  //return the semaphore after accessing shared data struct
 
 
-    vTaskDelay(1000/portTICK_PERIOD_MS);
+    vTaskDelay(1000/portTICK_PERIOD_MS);    //task delayed by 1s
   }
 }
 
-//Subroutine to read the value of the analog input  (task 4 & 5)
+//Task to read the value of the analog input  (requirement 4 & 5)
 void TaskAn1Read(void * parameters){
   int sum = 0;      //defines the  variable that will store the sum of the past 4 values of the analog input
   int An1Current = 0;   //defines the  variable that will store the current value of the analog input
-  int An1Ave;
-  int An1Data[4];
+  int An1Ave;   //defines the variable that will store the filtered anolog value of the analog input
+  int An1Data[4];   //defines the global array that will store the values of the anolog input
 
   for(;;){
-    digitalWrite(TestLED, HIGH);
+    //digitalWrite(TestLED, HIGH);
     sum = 0;      //defines the  variable that will store the sum of the past 4 values of the analog input
     An1Current = analogRead(An1);   //read the value of the analog input and store in the variable An1Current
-    digitalWrite(TestLED, LOW);
+    //(TestLED, LOW);
     
   
 
@@ -109,36 +110,36 @@ void TaskAn1Read(void * parameters){
       sum = sum + An1Data[x];
     }
 
-    An1Ave = sum/4; //calculate the filtered analog value and store it in the variable An1Ave
-    xQueueOverwrite(AveQueue, &An1Ave);
+    An1Ave = sum/4;     //calculate the filtered analog value and store it in the variable An1Ave
+    xQueueOverwrite(AveQueue, &An1Ave);     //update value in queue
 
-    xSemaphoreTake(ToPrintSecurity,10);
-    ToPrint.An1AveTP = An1Ave;
-    xSemaphoreGive(ToPrintSecurity);
+    xSemaphoreTake(ToPrintSecurity,10);   //obtain the semaphore before accessing shared data struct
+    ToPrint.An1AveTP = An1Ave;           //edit average filtered value in the shared data struct
+    xSemaphoreGive(ToPrintSecurity);    //return the semaphore after accessing shared data struct
 
 
-    vTaskDelay(42/portTICK_PERIOD_MS);
+    vTaskDelay(42/portTICK_PERIOD_MS);    //task delayed by 42ms
 
   }
 }
 
-//Subroutine to carry out the asmTask 1000 times (task 6)
+//Task to carry out the asmTask 1000 times (requirement 6)
 void TaskASM(void * parameters){
   for(;;){
 
     for (int y = 0; y < 1000; y++){   //for a 1000 iterations do below
       __asm__ __volatile__ ("nop");   //carry out asm instruction
     }
-    vTaskDelay(100/portTICK_PERIOD_MS);
+    vTaskDelay(100/portTICK_PERIOD_MS);   //task delayed by 100ms
   }
 }
 
-//Subroutine to carry out the defined error check and set the LED appropriatley (task 7 & 8)
+//Task to carry out the defined error check and set the LED appropriatley (requirement 7 & 8)
 void TaskErrCheck(void * parameters){
   int An1AveC;
   int error_code;
  for(;;){
-    xQueueReceive(AveQueue, &An1AveC, 43);
+    xQueueReceive(AveQueue, &An1AveC, 43);    //read average filtered value from queue
     if(An1AveC > 2030){    //if the filtered analog value is greater than 2030
       error_code = 1;     //set the error code variable to a value of 1
       digitalWrite(ErrLED, HIGH);   //set the error_code LED on
@@ -147,19 +148,19 @@ void TaskErrCheck(void * parameters){
       error_code = 0;     //set the error code variable to a value of 0
       digitalWrite(ErrLED, LOW);    //set the error_code LED off
     }
-    vTaskDelay(330/portTICK_PERIOD_MS);
+    vTaskDelay(330/portTICK_PERIOD_MS);   //task delayed by 330ms
  }
 }
 
-//Subroutine to print the state of the push button, the frequency of the 
-//square wave and the average value of the anolog input in csv format (task 9)
+//Task to print the state of the push button, the frequency of the 
+//square wave and the average value of the anolog input in csv format when Sw2 is pressed (requirement 9 & 10)
 void TaskCSVPrint(void * parameters){
   int Sw2State;  
   for(;;){
-    Sw2State = digitalRead(Sw2);  
-    if (Sw2State == HIGH){
+    Sw2State = digitalRead(Sw2);  //read state of Sw2 and store in Sw2State
+    if (Sw2State == HIGH){    //if Sw2 pressed carry out below
         
-      xSemaphoreTake(ToPrintSecurity, 10);
+      xSemaphoreTake(ToPrintSecurity, 10);    //obtain the semaphore before accessing shared data struct
 
       Serial.print(ToPrint.Sw1StateTP);   //print the state of the push button to the serial line
       Serial.print(",");       //print a comma to the serial line
@@ -167,9 +168,9 @@ void TaskCSVPrint(void * parameters){
       Serial.print(",");       //print a comma to the serial line
       Serial.println(ToPrint.An1AveTP);   //print the filtered analog value of the analog input to the serial line
 
-      xSemaphoreGive(ToPrintSecurity);
+      xSemaphoreGive(ToPrintSecurity);    //return the semaphore after accessing shared data struct
     }
-    vTaskDelay(5000/portTICK_PERIOD_MS);
+    vTaskDelay(5000/portTICK_PERIOD_MS);    //task delayed by 330ms
   }  
 }
 
@@ -190,70 +191,77 @@ void setup() {
   Serial.begin(9600);   // initialize Serial communication
   while (!Serial);    // wait for the serial port to open
 
-  ToPrintSecurity = xSemaphoreCreateBinary();
-  xSemaphoreGive(ToPrintSecurity);
+  ToPrintSecurity = xSemaphoreCreateBinary();   //create binary semaphore called ToPrintSecurity
+  xSemaphoreGive(ToPrintSecurity);    //give the semaphore initial value
 
-  AveQueue = xQueueCreate(AveQueueLength, sizeof(int)); 
+  AveQueue = xQueueCreate(AveQueueLength, sizeof(int));   //create queue  called AveQueue
 
+//Create watchdog task
   xTaskCreate(
-    TaskWatchdog,
-    "Watchdog",   // A name just for humans
-    512,  // This stack size can be checked & adjusted by reading the Stack Highwater
-    NULL,
-    3,  // Priority, with 3 (configMAX_PRIORITIES - 1) being the highest, and 0 being the lowest.
+    TaskWatchdog,  //Task routine name
+    "Watchdog",   // debug name
+    512,  //stack size (optimized using uxTaskGetStackHighWaterMark)
+    NULL, 
+    3,  //Priority
     NULL );
 
+//Create Sw1 check task
   xTaskCreate(
     TaskSw1Check,
-    "Sw1Check",   // A name just for humans
-    512,  // This stack size can be checked & adjusted by reading the Stack Highwater
+    "Sw1Check",   
+    512,  
     NULL,
-    2,  // Priority, with 3 (configMAX_PRIORITIES - 1) being the highest, and 0 being the lowest.
+    2,  
     NULL );
 
+//Create frequency check task
   xTaskCreate(
     TaskFreqCheck,
-    "FreqCheck",   // A name just for humans
-    1000,  // This stack size can be checked & adjusted by reading the Stack Highwater
+    "FreqCheck",   
+    1000,  
     NULL,
-    2,  // Priority, with 3 (configMAX_PRIORITIES - 1) being the highest, and 0 being the lowest.
+    2,  
     NULL );
   
+  //Create anoloug read task
   xTaskCreate(
     TaskAn1Read,
-    "An1Read",   // A name just for humans
-    900,  // This stack size can be checked & adjusted by reading the Stack Highwater
+    "An1Read",   
+    900,  
     NULL,
-    2,  // Priority, with 3 (configMAX_PRIORITIES - 1) being the highest, and 0 being the lowest.
+    2,  
     NULL );
 
+//Create ASM task
   xTaskCreate(
     TaskASM,
-    "ASM",   // A name just for humans
-    512,  // This stack size can be checked & adjusted by reading the Stack Highwater
+    "ASM",   
+    512,  
     NULL,
-    1,  // Priority, with 3 (configMAX_PRIORITIES - 1) being the highest, and 0 being the lowest.
+    1,  
     NULL );
 
+//Create Error check task
   xTaskCreate(
     TaskErrCheck
-    ,  "ErrCheck"   // A name just for humans
-    ,  720  // This stack size can be checked & adjusted by reading the Stack Highwater
+    ,  "ErrCheck"   
+    ,  720  
     ,  NULL
-    ,  1  // Priority, with 3 (configMAX_PRIORITIES - 1) being the highest, and 0 being the lowest.
+    ,  1  
     ,  NULL );
 
+//Create CSV print task
   xTaskCreate(
     TaskCSVPrint
-    ,  "CSVPrint"   // A name just for humans
-    ,  720  // This stack size can be checked & adjusted by reading the Stack Highwater
+    ,  "CSVPrint"   
+    ,  720  
     ,  NULL
-    ,  2  // Priority, with 3 (configMAX_PRIORITIES - 1) being the highest, and 0 being the lowest.
+    ,  2  
     ,  NULL );
   
 }
 
 
-//main (empty as all task calling occurs in the cyclic executive schedule 'TickFlag')
+//main (empty as all task calling occurs in FreeRTOS)
 void loop() {
 }
