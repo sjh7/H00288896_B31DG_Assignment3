@@ -1,29 +1,40 @@
-
 //H00288896
 //Samuel Hardman
 
-//This program carries out the 9 tasks outlined in the assignmnet breif, 
-//the tasks run in a cyclic executive to carry out the tasks at specified rates, 
-//with the notable meausrements being submitted to the serial port every 5 seconds in csv format
+//This program carries out the 10 tasks outlined in the assignmnet breif, 
+//the tasks use FreeRTOS to carry out the tasks at specified rates, 
+//with the notable meausrements being submitted to the serial port every 5 seconds in csv format,
+//as required a queue is used to link requirement 5 & 7, and a global struct with semaphore protection, 
+//is used to store the data to be printed in requirement 10
 
 //Defines all the constant parameters of the program
 #define Wdg 21      //define pin for watchdog (pin 21)
 #define Sw1 19      //define pin for the push button input (pin 19)
-#define Sw2 12      //define pin for the 2nd push button input (pin 12)
+#define Sw2 16      //define pin for the 2nd push button input (pin 12)
 #define SqWv 13     //define pin for square wave input (pin 17)
 #define An1 15      //define pin for the anolog input (pin 15)
 #define ErrLED 23   //define pin for the error LED (pin 23)
 #define TestLED 22  //define pin for the TestLED to demonstrate the timing of task 4(pin 22)
-static const uint8_t AveQueueLength = 2;
-static QueueHandle_t AveQueue;
+static const uint8_t AveQueueLength = 1;  //defines the length of the queue 
+static QueueHandle_t AveQueue;            //defines the name/handle of the queue
+static SemaphoreHandle_t ToPrintSecurity; //defines the name/handle of the Semaphore
 
 //Sets the global variables 
-int Sw1State;     //defines the global variable that will store the state of the push button input
-int Sw2State;
-int Freq;         //defines the global variable that will store the frequency of the square wave input
-int An1Data[4];   //defines the global array that will store the values of the anolog input
+//int Sw1State;     //defines the global variable that will store the state of the push button input
+//int Freq;         //defines the global variable that will store the frequency of the square wave input
+//int An1Data[4];   //defines the global array that will store the values of the anolog input
 //int An1Ave;       //defines the global variable that will store the filtered anolog value of the analog input
-int error_code;   //defines the global variable that will store the state of the error_code
+//int error_code;   //defines the global variable that will store the state of the error_code
+//int time1 = 0;
+//int time2 = 0;
+
+struct Struct_data {
+  int Sw1StateTP;
+  int FreqTP;
+  int An1AveTP;
+};
+
+Struct_data ToPrint; 
 
 
 //Subroutine to create the watchdog pulse (task 1)
@@ -32,15 +43,23 @@ void TaskWatchdog(void * Parameters){
     digitalWrite(Wdg, HIGH);    //Starts pulse on SigB
     delayMicroseconds(50);      //Delay for width of the Pulse
     digitalWrite(Wdg, LOW);     //End Pulse on SigB
+
     vTaskDelay(17.54/portTICK_PERIOD_MS); // wait for one second
+    
   }
 }
 
 
 //Subroutine to read the state of the push button input (task 2)
 void TaskSw1Check(void * parameters){
+  int Sw1State;
   for(;;){
     Sw1State = digitalRead(Sw1);    //read the value of digital input Sw1 and store it in the variable Sw1State
+
+    xSemaphoreTake(ToPrintSecurity,10);
+    ToPrint.Sw1StateTP = Sw1State;
+    xSemaphoreGive(ToPrintSecurity);
+ 
     vTaskDelay(200/portTICK_PERIOD_MS);
   }
 }
@@ -48,9 +67,16 @@ void TaskSw1Check(void * parameters){
 //Subroutine to read the frequency of the square wave input (task 3)
 void TaskFreqCheck(void * parameters){
   int TimeHigh;
+  int Freq;
   for(;;){
-    TimeHigh = pulseIn(SqWv, HIGH);
-    Freq = 1000000/(TimeHigh*2);
+    //TimeHigh = pulseIn(SqWv, HIGH);
+    Freq = 1000000; //(TimeHigh*2);
+
+    xSemaphoreTake(ToPrintSecurity,10);    
+    ToPrint.FreqTP = Freq;
+    xSemaphoreGive(ToPrintSecurity);
+
+
     vTaskDelay(1000/portTICK_PERIOD_MS);
   }
 }
@@ -59,6 +85,9 @@ void TaskFreqCheck(void * parameters){
 void TaskAn1Read(void * parameters){
   int sum = 0;      //defines the  variable that will store the sum of the past 4 values of the analog input
   int An1Current = 0;   //defines the  variable that will store the current value of the analog input
+  int An1Ave;
+  int An1Data[4];
+
   for(;;){
     digitalWrite(TestLED, HIGH);
     sum = 0;      //defines the  variable that will store the sum of the past 4 values of the analog input
@@ -81,16 +110,22 @@ void TaskAn1Read(void * parameters){
     }
 
     An1Ave = sum/4; //calculate the filtered analog value and store it in the variable An1Ave
+    xQueueOverwrite(AveQueue, &An1Ave);
 
-    xQueueOverwrite(AveQueue, (void *)&An1Ave, 5);
-    
+    xSemaphoreTake(ToPrintSecurity,10);
+    ToPrint.An1AveTP = An1Ave;
+    xSemaphoreGive(ToPrintSecurity);
+
+
     vTaskDelay(42/portTICK_PERIOD_MS);
+
   }
 }
 
 //Subroutine to carry out the asmTask 1000 times (task 6)
 void TaskASM(void * parameters){
   for(;;){
+
     for (int y = 0; y < 1000; y++){   //for a 1000 iterations do below
       __asm__ __volatile__ ("nop");   //carry out asm instruction
     }
@@ -100,8 +135,11 @@ void TaskASM(void * parameters){
 
 //Subroutine to carry out the defined error check and set the LED appropriatley (task 7 & 8)
 void TaskErrCheck(void * parameters){
+  int An1AveC;
+  int error_code;
  for(;;){
-    if(An1Ave > 2030){    //if the filtered analog value is greater than 2030
+    xQueueReceive(AveQueue, &An1AveC, 43);
+    if(An1AveC > 2030){    //if the filtered analog value is greater than 2030
       error_code = 1;     //set the error code variable to a value of 1
       digitalWrite(ErrLED, HIGH);   //set the error_code LED on
     }
@@ -116,16 +154,22 @@ void TaskErrCheck(void * parameters){
 //Subroutine to print the state of the push button, the frequency of the 
 //square wave and the average value of the anolog input in csv format (task 9)
 void TaskCSVPrint(void * parameters){
+  int Sw2State;  
   for(;;){
     Sw2State = digitalRead(Sw2);  
     if (Sw2State == HIGH){
-      Serial.print(Sw1State);   //print the state of the push button to the serial line
-      Serial.print(", ");       //print a comma to the serial line
-      Serial.print(Freq);       //print the frequency of the square wave input to the serial line
-      Serial.print(", ");       //print a comma to the serial line
-      Serial.println(An1Ave);   //print the filtered analog value of the analog input to the serial line
-      vTaskDelay(5000/portTICK_PERIOD_MS);
+        
+      xSemaphoreTake(ToPrintSecurity, 10);
+
+      Serial.print(ToPrint.Sw1StateTP);   //print the state of the push button to the serial line
+      Serial.print(",");       //print a comma to the serial line
+      Serial.print(ToPrint.FreqTP);       //print the frequency of the square wave input to the serial line
+      Serial.print(",");       //print a comma to the serial line
+      Serial.println(ToPrint.An1AveTP);   //print the filtered analog value of the analog input to the serial line
+
+      xSemaphoreGive(ToPrintSecurity);
     }
+    vTaskDelay(5000/portTICK_PERIOD_MS);
   }  
 }
 
@@ -146,52 +190,55 @@ void setup() {
   Serial.begin(9600);   // initialize Serial communication
   while (!Serial);    // wait for the serial port to open
 
+  ToPrintSecurity = xSemaphoreCreateBinary();
+  xSemaphoreGive(ToPrintSecurity);
+
   AveQueue = xQueueCreate(AveQueueLength, sizeof(int)); 
 
   xTaskCreate(
     TaskWatchdog,
     "Watchdog",   // A name just for humans
-    1023,  // This stack size can be checked & adjusted by reading the Stack Highwater
+    512,  // This stack size can be checked & adjusted by reading the Stack Highwater
     NULL,
     3,  // Priority, with 3 (configMAX_PRIORITIES - 1) being the highest, and 0 being the lowest.
     NULL );
 
   xTaskCreate(
-    TaskSw1Check
-    ,  "Sw1Check"   // A name just for humans
-    ,  1023  // This stack size can be checked & adjusted by reading the Stack Highwater
-    ,  NULL
-    ,  2  // Priority, with 3 (configMAX_PRIORITIES - 1) being the highest, and 0 being the lowest.
-    ,  NULL );
+    TaskSw1Check,
+    "Sw1Check",   // A name just for humans
+    512,  // This stack size can be checked & adjusted by reading the Stack Highwater
+    NULL,
+    2,  // Priority, with 3 (configMAX_PRIORITIES - 1) being the highest, and 0 being the lowest.
+    NULL );
 
   xTaskCreate(
-    TaskFreqCheck
-    ,  "FreqCheck"   // A name just for humans
-    ,  1023  // This stack size can be checked & adjusted by reading the Stack Highwater
-    ,  NULL
-    ,  2  // Priority, with 3 (configMAX_PRIORITIES - 1) being the highest, and 0 being the lowest.
-    ,  NULL );
+    TaskFreqCheck,
+    "FreqCheck",   // A name just for humans
+    1000,  // This stack size can be checked & adjusted by reading the Stack Highwater
+    NULL,
+    2,  // Priority, with 3 (configMAX_PRIORITIES - 1) being the highest, and 0 being the lowest.
+    NULL );
   
   xTaskCreate(
-    TaskAn1Read
-    ,  "An1Read"   // A name just for humans
-    ,  1023  // This stack size can be checked & adjusted by reading the Stack Highwater
-    ,  NULL
-    ,  2  // Priority, with 3 (configMAX_PRIORITIES - 1) being the highest, and 0 being the lowest.
-    ,  NULL );
+    TaskAn1Read,
+    "An1Read",   // A name just for humans
+    900,  // This stack size can be checked & adjusted by reading the Stack Highwater
+    NULL,
+    2,  // Priority, with 3 (configMAX_PRIORITIES - 1) being the highest, and 0 being the lowest.
+    NULL );
 
   xTaskCreate(
-    TaskASM
-    ,  "ASM"   // A name just for humans
-    ,  1023  // This stack size can be checked & adjusted by reading the Stack Highwater
-    ,  NULL
-    ,  1  // Priority, with 3 (configMAX_PRIORITIES - 1) being the highest, and 0 being the lowest.
-    ,  NULL );
+    TaskASM,
+    "ASM",   // A name just for humans
+    512,  // This stack size can be checked & adjusted by reading the Stack Highwater
+    NULL,
+    1,  // Priority, with 3 (configMAX_PRIORITIES - 1) being the highest, and 0 being the lowest.
+    NULL );
 
   xTaskCreate(
     TaskErrCheck
     ,  "ErrCheck"   // A name just for humans
-    ,  1023  // This stack size can be checked & adjusted by reading the Stack Highwater
+    ,  720  // This stack size can be checked & adjusted by reading the Stack Highwater
     ,  NULL
     ,  1  // Priority, with 3 (configMAX_PRIORITIES - 1) being the highest, and 0 being the lowest.
     ,  NULL );
@@ -199,7 +246,7 @@ void setup() {
   xTaskCreate(
     TaskCSVPrint
     ,  "CSVPrint"   // A name just for humans
-    ,  1023  // This stack size can be checked & adjusted by reading the Stack Highwater
+    ,  720  // This stack size can be checked & adjusted by reading the Stack Highwater
     ,  NULL
     ,  2  // Priority, with 3 (configMAX_PRIORITIES - 1) being the highest, and 0 being the lowest.
     ,  NULL );
